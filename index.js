@@ -4,24 +4,47 @@ class DecisionNode {
         this._branches = []
     }
 
+    /**
+     * @param {any} value The value to match if we were to follow this branch
+     * @param {string | any} attribute The next attribute to test once we follow this branch, or the action if it is a leaf.
+     * 
+     * @return {DecisionNode} The new node
+     */
     createBranchWithValue(value, attribute) {
         let branch = new ValueDecisionNode(value, attribute)
         this._branches.push(branch)
         return branch
     }
 
+    /**
+     * @param {function} predicate The predicate to match if we were to follow this branch
+     * @param {string | any} attribute The next attribute to test once we follow this branch, or the action if it is a leaf.
+     * 
+     * @return {DecisionNode} The new node
+     */
     createBranchWithPredicate(predicate, attribute) {
         let branch = new PredicateDecisionNode(predicate, attribute)
         this._branches.push(branch)
         return branch
     }
 
+    /**
+     * @param {number} weight The weight of the new branch, the chance it will be followed is the weight divided by the sum of the weights of all branches
+     * @param {string | any} attribute The next attribute to test once we follow this branch, or the action if it is a leaf.
+     * 
+     * @return {DecisionNode} The new node
+     */
     createBranchWithWeight(weight, attribute) {
         let branch = new WeightDecisionNode(weight, attribute)
         this._branches.push(branch)
         return branch
     }
 
+    /**
+     * @param {any} actions A map of answers, a name and value for each attribute used in the tree
+     * 
+     * @return {any} The action according to the answers given
+     */
     _findActionForAnswers(answers) {
         // If this is a leaf, return the action
         if (this._branches.length == 0) {
@@ -46,15 +69,11 @@ class DecisionNode {
         else {
             let value = answers[this._attribute]
             for (let i = 0; i < this._branches.length; i++) {
-                console.log(i, this._branches.length)
                 let branch = this._branches[i]
                 if (branch instanceof ValueDecisionNode) {
                     if (branch._value == value) {
                         console.debug("following branch " + branch._value)
                         return branch._findActionForAnswers(answers)
-                    }
-                    else {
-                        console.debug("not following branch " + branch._value)
                     }
                 }
                 else if (branch instanceof PredicateDecisionNode) {
@@ -96,14 +115,29 @@ class DecisionTree {
         this._root = new DecisionNode(attribute)
     }
 
+    /**
+     * @return {DecisionNode} The root node
+     */
     get root() {
         return this._root
     }
 
+    /**
+     * @param {any} actions A map of answers, a name and value for each attribute used in the tree
+     * 
+     * @return {any} The action according to the answers given
+     */
     findActionForAnswers(answers) {
         return this._root._findActionForAnswers(answers)
     }
 
+    /**
+     * @param {any[][]} examples Rows of example data, each row containing a list of parameters
+     * @param {any[]} actions A list of actions, one for each row in examples
+     * @param {string[]} attributes A list of attribute names, one for each column in createWithExamples
+     * 
+     * @return {DecisionTree} A new DecisionTree which classifies the data in examples into the given actions
+     */
     static createWithExamples(examples, actions, attributes) {
         let splitAttributeIndex = this._chooseSplitAttribute(examples, actions, attributes)
         console.log("splitting on " + attributes[splitAttributeIndex])
@@ -112,33 +146,41 @@ class DecisionTree {
         return tree
     }
 
+    /**
+     * @param {any[][]} examples Rows of example data, each row containing a list of parameters
+     * @param {any[]} actions A list of actions, one for each row in examples
+     * @param {string[]} attributes A list of attribute names, one for each column in createWithExamples
+     * @return {number} The index of the best attribute to split on 
+     */
     static _chooseSplitAttribute(examples, actions, attributes) {
+        let actionsCount = this.calcFrequency(actions)
+        let parentEntropy = this.calcWeightedEntropySum(Object.values(actionsCount), actions.length)
         let informationGain = attributes.map((attribute, index)=>{
             console.log("examining attribute " + attribute)
-            let actionsCount = this.calcFrequency(actions)
-            let parentEntropy = this.calcWeightedEntropySum(Object.values(actionsCount), actions.length)
             let column = examples.map(row=>row[index])
             let valuesCount = this.calcFrequency(column)
             let valueEntropy = Object.entries(valuesCount).map(([value, count])=>{
                 let actionsForValue = actions.filter((action, actionIndex)=>{
-                    //console.log(examples[actionIndex][index], value, examples[actionIndex][index] == value, typeof(value))
                     return examples[actionIndex][index] == value
                 })
                 let actionsForValueCount = this.calcFrequency(actionsForValue)
                 let valueEntropy = this.calcWeightedEntropySum(Object.values(actionsForValueCount), count)
                 return (count/actions.length) * valueEntropy
             })
-            console.log("parent entropy", parentEntropy)
-            
-            console.log("entropy", valueEntropy)
             let totalEntropy = valueEntropy.reduce((sum, weightedEntropy)=>sum + weightedEntropy, 0)
-            console.log("totalEntropy", totalEntropy)
+            console.log("parent entropy", parentEntropy, "entropy", valueEntropy, "totalEntropy", totalEntropy, "informationGain", parentEntropy - totalEntropy)
             return parentEntropy - totalEntropy
         })
-        console.log("informationGain", informationGain)
         return informationGain.reduce((maxIndex, value, i, list) => value > list[maxIndex] ? i : maxIndex, 0);
     }
 
+    /**
+     * @param {DecisionNode} node The node to split
+     * @param {any[][]} examples Rows of example data, each row containing a list of parameters
+     * @param {any[]} actions A list of actions, one for each row in examples
+     * @param {string[]} attributes A list of attribute names, one for each column in examples
+     * @param {number} attributeIndex The index of the attribute to split on
+     */
     static _splitNode(node, examples, actions, attributes, attributeIndex) {
         let values = this.distinctValues(examples.map(row=>row[attributeIndex]))
         // Split examples and actions into new lists
@@ -162,8 +204,8 @@ class DecisionTree {
                 console.log(newActions, "creating leaf with " + attributes[attributeIndex] + "==" + value + " in " + node._value)
                 node.createBranchWithValue(value, newActions[0])
             }
-            else { // Else
-                // If there are attributes left to branch on, branch
+            else { // Else create branches
+                // If there are attributes left to branch on, branch again
                 if (newAttributes.length > 0) {
                     console.log(newActions, "creating branch with " + attributes[attributeIndex] + "==" + value)
                     let splitAttributeIndex = this._chooseSplitAttribute(newExamples, newActions, newAttributes)
@@ -171,7 +213,7 @@ class DecisionTree {
                     let childNode = node.createBranchWithValue(value, newAttributes[splitAttributeIndex])
                     this._splitNode(childNode, newExamples, newActions, newAttributes, splitAttributeIndex)
                 }
-                else { // Otherwise create a leaf with the most common action
+                else { // Otherwise create a leaf with the most common action (TODO: create weighted leaves with the given probabilities)
                     console.log(newActions, "creating leaf with most common action " + attributes[attributeIndex] + "==" + value)
                     this.calcFrequency(newActions)
                     let entries = Object.entries(newActions)
@@ -182,10 +224,20 @@ class DecisionTree {
         })
     }
 
+    /**
+     * @param {any[]} list A list of parameter values
+     * 
+     * @return {any[]} A list of all distinct values
+     */
     static distinctValues(list) {
         return Object.keys(this.calcFrequency(list))
     }
 
+    /**
+     * @param {any[]} list A list of parameter values
+     * 
+     * @return {object} A map containing the frequency for each value
+     */
     static calcFrequency(list) {
         return list.reduce((map, item)=>{
             map[item] = (map[item] || 0) + 1
@@ -193,12 +245,23 @@ class DecisionTree {
         }, {})
     }
 
+    /**
+     * @param {array} list A list of partials
+     * @param {number} total The sum of all partials in the list
+     *
+     * @return {number} The weighted entropy sum
+     */
     static calcWeightedEntropySum(list, total) {
         return list.reduce((sum, count)=>sum + this.calcEntropy(count, total), 0)
     }
 
+    /**
+     * @param {number} k A partial
+     * @param {number} n The sum of all partials
+     *
+     * @return {number} The entropy
+     */
     static calcEntropy(k, n) {
-        console.log(k, n, k/n, -(k/n)*Math.log2(k/n))
         return -(k/n)*Math.log2(k/n)
     }
 }
@@ -230,7 +293,7 @@ function testCreateWithExamples(examples, actions, attributes) {
     examples.forEach((example, index)=>{
         let answers = attributes.reduce((map, attribute, attributeIndex)=>{map[attribute] = example[attributeIndex]; return map}, {})
         let action = tree.findActionForAnswers(answers)
-        console.log(answers, action, actions[index], action == actions[index])
+        console.log(action, actions[index], action == actions[index])
     })
 }
 
@@ -344,21 +407,20 @@ function testGolfExample() {
     testCreateWithExamples(examples, actions, attributes)
 }
 
-testGolfExample()
+//testGolfExample()
 
 function testAppleGkExample() {
     // Data from https://developer.apple.com/documentation/gameplaykit/gkdecisiontree?language=objc#1965709
-    DecisionTree.createWithExamples(
-    [
-        ["electric", 10, true],
-        ["electric", 30, false],
-        ["electric", 40, true],
-        ["fire", 20, false],
-        ["fire", 30, false],
-        ["water", 50, true],
-        ["water", 40, false],
-    ],
-    [
+    let examples = [
+        ["electric", 10, "true"],
+        ["electric", 30, "false"],
+        ["electric", 40, "true"],
+        ["fire", 20, "false"],
+        ["fire", 30, "false"],
+        ["water", 50, "true"],
+        ["water", 40, "false"],
+    ]
+    let actions = [
         "psychic Strike",
         "pound",
         "barrier",
@@ -366,10 +428,13 @@ function testAppleGkExample() {
         "tackle",
         "pound",
         "tackle",
-    ], 
-    [
+    ]
+    let attributes = [
         "type", 
         "hp", 
         "special"
-    ])
+    ]
+    testCreateWithExamples(examples, actions, attributes)
 }
+
+testAppleGkExample()
